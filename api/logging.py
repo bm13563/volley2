@@ -1,8 +1,13 @@
 import logging
 
+
 class CustomFormatter(logging.Formatter):
     """Logging Formatter to add colors and alter format"""
-    level_suffix = "[%(asctime)s] %(levelname)s in %(filename)s:%(lineno)d: %(message)s" + "\x1b[0m"
+
+    level_suffix = (
+        "[%(asctime)s] %(levelname)s in %(filename)s:%(lineno)d: %(message)s"
+        + "\x1b[0m"
+    )
 
     FORMATS = {
         logging.DEBUG: "\033[92m" + level_suffix,

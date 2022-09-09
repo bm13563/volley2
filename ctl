@@ -12,12 +12,13 @@ case $1 in
         docker build -t volley2 .
     ;;
     start)
-        docker run -it --name volley2-postgres --rm -p 5432:5432 -e POSTGRES_USER=volley -e POSTGRES_PASSWORD=volley -d postgres >/dev/null 2>&1
+        fuser -k 5432/tcp
+        docker run -it --name volley2-postgres --rm -p 5432:5432 -e POSTGRES_USER=volley -e POSTGRES_PASSWORD=volley -d postgres
         docker run -it --name volley2 --rm --volume "$(pwd)"/api:/volley2/api --net=host --env-file ./dev.env volley2:latest
     ;;
     stop)
-        docker stop volley2-postgres
-        docker rm volley2-postgres
+        docker stop volley2-postgres >/dev/null 2>&1
+        docker rm volley2-postgres >/dev/null 2>&1
     ;;
     reset)
         docker stop volley2-postgres >/dev/null 2>&1
