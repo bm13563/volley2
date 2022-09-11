@@ -1,21 +1,20 @@
-from logging import StreamHandler, getLogger
-
 from flask import Flask
 from dotenv import load_dotenv
 
-from api.logging import CustomFormatter
+from common.logging import get_logger
 from api.db import DbManager
 
 
-logger = getLogger(__name__)
-log_handler = StreamHandler()
-log_handler.setFormatter(CustomFormatter())
-logger.addHandler(log_handler)
+logger = get_logger()
+
 
 load_dotenv()
-
 app = Flask(__name__)
+logger.info("starting application")
 
-app.logger.info("started flask server")
+db = DbManager()
 
-app.db = DbManager()
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    return "pong"

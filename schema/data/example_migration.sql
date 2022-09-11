@@ -1,0 +1,1 @@
+insert into migrations.migrations (version) values (0);
