@@ -1,13 +1,15 @@
-from os import getcwd, environ, listdir, path, mknod, getcwd
+from os import getcwd, listdir, path, mknod, getcwd
 from datetime import datetime
 
-from dotenv import load_dotenv
-from psycopg2 import connect
+from psycopg2.extras import register_uuid
 
+from api.db import dbm
 from common.logging import get_logger
+from schema.data.add_data import add_data
 
 
 logger = get_logger(__name__)
+register_uuid()
 
 
 MUTEX_ID = "1625475538359"
@@ -19,113 +21,100 @@ def migrate():
 
 def migrate_dev():
     try:
-        conn = get_dev_db_connection()
         sorted_sql_files = get_sorted_sql_files()
-        _apply_migration(conn, sorted_sql_files)
-        return conn
+        _apply_migration(sorted_sql_files)
     except Exception as e:
         logger.error("could not migrate dev environment", extra={"exception": e})
-        conn.rollback()
-        _release_mutex_lock(conn)
-        raise(e)
+        _release_mutex_lock()
+        raise (e)
 
 
-def _apply_migration(conn, sorted_sql_files: dict):
-    _get_mutex_lock(conn)
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            select max(version)
-            from migrations.migrations
-        """)
-        migrations = cursor.fetchone()
-        current_version = migrations[0] if migrations[0] else 0
+def _apply_migration(sorted_sql_files: dict):
+    _get_mutex_lock()
 
-        for version, filename in sorted_sql_files.items():
-            if version > current_version:
-                with open(str(getcwd()) + "/schema/migrations/" + filename, "r") as sql_file:
-                    sql = sql_file.read()
-                    try:
-                        cursor.execute(sql)
-                        logger.info("ran sql", extra={"file": filename, "sql": sql})
-                    except Exception as e:
-                        conn.rollback()
-                        logger.error("failed to run sql", extra={"file": filename, "sql": sql, "exception": e})
-                        raise(e)
+    result_set = dbm.fetch_one(
+        """
+        select exists (
+            select from information_schema.tables
+            where table_schema = 'migrations'
+                and table_name = 'migrations'
+        )
+    """
+    )
+    migrations_exist = result_set.get("exists") or False
 
-        conn.commit()
-        max_version = max(sorted_sql_files.keys())
-        cursor.execute("""
-            insert into migrations.migrations (version) values (%(version)s)
-        """, {"version": max_version})
-        conn.commit()
-        logger.info("migrated to new database version", extra={"version": max_version})
+    if migrations_exist:
+        migrations = dbm.fetch_one(
+            """
+                select max(version)
+                from migrations.migrations
+            """
+        )
+        current_version = migrations[0]
+    else:
+        current_version = 0
 
-    _release_mutex_lock(conn)
+    for version, filename in sorted_sql_files.items():
+        if version > current_version:
+            with open(
+                str(getcwd()) + "/schema/migrations/" + filename, "r"
+            ) as sql_file:
+                sql = sql_file.read()
+                dbm.execute(sql)
+
+    max_version = max(sorted_sql_files.keys())
+    dbm.execute(
+        """
+            insert into migrations.migrations (version) values (%(version)s);
+        """,
+        {"version": max_version},
+    )
+    logger.info("migrated to new database version", extra={"version": max_version})
+
+    _release_mutex_lock()
 
 
-def _get_mutex_lock(conn):
-    with conn.cursor() as cursor:
-        cursor.execute("select pg_advisory_lock(%(mutex_id)s);", {"mutex_id": MUTEX_ID})
-        lock = cursor.fetchone()
-        if not lock:
-            raise Exception("could not get lock")
-        logger.info("got mutex lock", extra={"mutex_id": MUTEX_ID})
+def _get_mutex_lock():
+    lock = dbm.fetch_one(
+        "select pg_advisory_lock(%(mutex_id)s);", {"mutex_id": MUTEX_ID}
+    )
+    if not lock:
+        raise Exception("could not get lock")
+    logger.info("got mutex lock", extra={"mutex_id": MUTEX_ID})
 
 
-def _release_mutex_lock(conn):
-    with conn.cursor() as cursor:
-        cursor.execute("select pg_advisory_unlock(%(mutex_id)s);", {"mutex_id": MUTEX_ID})
-        logger.info("released mutex lock", extra={"mutex_id": MUTEX_ID})
+def _release_mutex_lock():
+    dbm.execute("select pg_advisory_unlock(%(mutex_id)s);", {"mutex_id": MUTEX_ID})
+    logger.info("released mutex lock", extra={"mutex_id": MUTEX_ID})
 
 
 def create_db():
-    conn = migrate_dev()
+    migrate_dev()
+    add_data()
     data_files = listdir(str(getcwd()) + "/schema/data")
     for f in data_files:
-        with open(str(getcwd()) + "/schema/data/" + f, "r") as sql_file:
-            sql = sql_file.read()
-            with conn.cursor() as cursor:
-                cursor.execute(sql)
-                conn.commit()
+        if f.endswith(".sql"):
+            with open(str(getcwd()) + "/schema/data/" + f, "r") as sql_file:
+                sql = sql_file.read()
+                dbm.execute(sql)
                 logger.info("ran sql", extra={"file": f, "sql": sql})
 
 
-def reset_db():
-    conn = get_dev_db_connection()
-    with conn.cursor() as cursor:
-        cursor.execute("drop schema if exists public cascade;")
-        cursor.execute("create schema public;")
-        cursor.execute("delete from migrations.migrations;")
-        conn.commit()
-        logger.info("reset db")
-
-
-def get_dev_db_connection():
-    load_dotenv(str(getcwd()) + "/dev.env")
-    conn = connect(
-        host=environ.get("DB_HOST"),
-        database=environ.get("DB_NAME"),
-        user=environ.get("DB_USER"),
-        password=environ.get("DB_PASSWORD"),
-    )
-    logger.info(
-        "got dev db connection",
-        extra={
-            "host": environ.get("DB_HOST"),
-            "database": environ.get("DB_NAME"),
-            "user": environ.get("DB_USER"),
-        },
-    )
-    return conn
+def destroy_db():
+    dbm.execute("drop schema if exists public cascade;")
+    dbm.execute("create schema public;")
+    dbm.execute("drop schema if exists migrations cascade;")
+    dbm.execute("create schema migrations;")
+    logger.info("destroy db")
 
 
 def get_sorted_sql_files() -> dict:
     sql_files = listdir(str(getcwd()) + "/schema/migrations")
     sql_files_to_sort = {}
     for f in sql_files:
-        sortable = int(f.split("_")[0])
-        sql_files_to_sort[sortable] = f
-
+        if f.endswith(".sql"):
+            version = int(f.split("_")[0])
+            sql_files_to_sort[version] = f
     return dict(sorted(sql_files_to_sort.items()))
 
 

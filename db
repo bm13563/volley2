@@ -10,7 +10,11 @@ case $1 in
     create-db)
         python -c"from schema.db_tools import create_db; create_db()"
     ;;
+    destroy-db)
+        python -c"from schema.db_tools import destroy_db; destroy_db()"
+    ;;
     reset-db)
-        python -c"from schema.db_tools import reset_db; reset_db()"
+        python -c"from schema.db_tools import destroy_db; destroy_db()"
+        python -c"from schema.db_tools import create_db; create_db()"
     ;;
 esac

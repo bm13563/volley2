@@ -1,6 +1,6 @@
-from schema.db_tools import migrate_dev, reset_db
+from schema.db_tools import migrate_dev, destroy_db
 
 
 def test_migrate():
-    reset_db()
+    destroy_db()
     migrate_dev()

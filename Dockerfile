@@ -18,6 +18,7 @@ RUN pip install -r requirements.txt
 
 # copy the content of the local src directory to the working directory
 COPY api/ api/
+COPY common/ common/
 
 # command to run on container start
 CMD flask --app api --debug run
