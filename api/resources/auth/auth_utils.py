@@ -16,7 +16,7 @@ logger = get_logger()
 def generate_token(user_id):
     try:
         token = encode(
-            {"user_id": user_id},
+            {"user_id": user_id, "exp": environ.get("JWT_EXPIRATION")},
             environ.get("SECRET_KEY"),
         )
         logger.info("token generated", extra={"user_id": user_id})

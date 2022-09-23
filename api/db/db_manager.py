@@ -8,15 +8,14 @@ from common.logging import get_logger
 
 
 logger = get_logger()
-register_uuid()
 
 
 class DbManager:
     def __init__(self):
-        self.db = None
-        logger.warning("database instantiated... remember to connect!")
+        register_uuid()
+        self.db = self._connect()
 
-    def connect(self):
+    def _connect(self):
         attempts = 0
         while attempts < 5:
             try:
